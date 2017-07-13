@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.nipunarora.spotme">
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/people_pointer"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/people_pointer"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme.NoActionBar">
+        <activity android:name=".Splash">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".HomeActivity"
+            android:label="@string/title_activity_home"
+            android:theme="@style/AppTheme.NoActionBar"></activity>
+        <service android:name=".LocationBackgroundService"
+                 android:enabled="true"
+                 android:exported="true" />
+    </application>
+
+</manifest>

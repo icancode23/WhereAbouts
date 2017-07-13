@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "158511659519",
+    "firebase_url": "https://spot-me-313af.firebaseio.com",
+    "project_id": "spot-me-313af",
+    "storage_bucket": "spot-me-313af.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:158511659519:android:b10c4d13b0d71518",
+        "android_client_info": {
+          "package_name": "com.example.nipunarora.spotme"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "158511659519-dq02bvunoq9m27rqscjeu7oleekbd39j.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.nipunarora.spotme",
+            "certificate_hash": "7fc425b5149e46c34a2f0be5560408100a5f1ee7"
+          }
+        },
+        {
+          "client_id": "158511659519-gu8fqtildbrre3boc55hq6ge3292j0pn.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBFhOfcFReadpniegJAhnNRNLgLKzHAgRQ"
+        }
+      ],
+      "services": {
+        "analytics_service": {
+          "status": 1
+        },
+        "appinvite_service": {
+          "status": 2,
+          "other_platform_oauth_client": [
+            {
+              "client_id": "158511659519-gu8fqtildbrre3boc55hq6ge3292j0pn.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        },
+        "ads_service": {
+          "status": 2
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
