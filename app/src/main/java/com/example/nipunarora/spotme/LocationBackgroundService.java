@@ -239,11 +239,16 @@ public class LocationBackgroundService extends Service {
         if(previous_location==null){
             previous_location=location;
         }else {
-            if(previous_location.distanceTo(location)>5){
+            if(previous_location.distanceTo(location)>10){
                 //Here we have a significant change in the distance of the position thus we need to update the firebase
                 ++iterative_key;
                 Log.d(TAG, "The Latitude is : " + Double.toString(location.getLatitude()) + "and the longitude is : " + Double.toString(location.getLongitude())+"and the iterative counter is "+Integer.toString(iterative_key));
                 //Send Data to Firebase
+
+                // Update notification content if running as a foreground service.
+                if (serviceIsRunningInForeground(this)) {
+                    notification_manager.notify(NOTIFICATION_ID, getNotification(location.getLatitude(),location.getLongitude()));
+                }
             }
             else {
                 previous_location=location;
@@ -254,10 +259,6 @@ public class LocationBackgroundService extends Service {
         intent.putExtra(EXTRA_LOCATION, location);
         LocalBroadcastManager.getInstance(getApplicationContext()).sendBroadcast(intent);*/
 
-        // Update notification content if running as a foreground service.
-        if (serviceIsRunningInForeground(this)) {
-            notification_manager.notify(NOTIFICATION_ID, getNotification(location.getLatitude(),location.getLongitude()));
-        }
     }
 
     //Setup Location Updates
