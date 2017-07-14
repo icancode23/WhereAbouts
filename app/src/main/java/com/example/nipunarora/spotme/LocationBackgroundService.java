@@ -8,6 +8,8 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
+import android.location.Address;
+import android.location.Geocoder;
 import android.location.Location;
 import android.os.Binder;
 import android.os.Build;
@@ -17,10 +19,12 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.preference.PreferenceManager;
 import android.support.annotation.IntDef;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
+import android.widget.Toast;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
@@ -28,8 +32,14 @@ import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.tasks.OnFailureListener;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+
+import java.io.IOException;
+import java.sql.Timestamp;
+import java.util.List;
+import java.util.Locale;
 
 /**
  * Created by nipunarora on 13/07/17.
@@ -50,11 +60,14 @@ public class LocationBackgroundService extends Service {
     private static final long FASTEST_UPDATE_INTERVAL_IN_MILLISECONDS =
             UPDATE_INTERVAL_IN_MILLISECONDS / 2;
     private NotificationManager notification_manager;
-    Handler service_handler;
+    Handler service_handler,reverse_geocode_handler;
     String EXTRA_LOCATION="CurrentLocation";
     public String ACTION_BROADCAST="LocationBackgroundService.LocationUpdateBroadcast";
     Looper handler_thread_looper;
+    HandlerThread reverse_geocode_thread;
+    Runnable reverse_geocode_send_to_firebase;
     Location previous_location=null;
+    DatabaseReference database_reference;
 
 
     /*********************** Overrides ***********************/
@@ -70,9 +83,13 @@ public class LocationBackgroundService extends Service {
         handlerThread.start();
         handler_thread_looper=handlerThread.getLooper();
         service_handler = new Handler(handler_thread_looper);
+        reverse_geocode_thread=new HandlerThread("ReverseGeocode");
+        reverse_geocode_thread.start();
+        reverse_geocode_handler=new Handler(reverse_geocode_thread.getLooper());
         notification_manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-
         mFusedLocationClient= LocationServices.getFusedLocationProviderClient(this);
+        database_reference=FirebaseDatabase.getInstance().getReference("users/456");
+
     }
 
     @Override
@@ -134,6 +151,7 @@ public class LocationBackgroundService extends Service {
     @Override
     public void onDestroy() {
         service_handler.removeCallbacksAndMessages(null);
+        reverse_geocode_handler.removeCallbacksAndMessages(null);
     }
 
 
@@ -195,10 +213,6 @@ public class LocationBackgroundService extends Service {
             public void onLocationResult(LocationResult locationResult) {
                 super.onLocationResult(locationResult);
                 onNewLocation(locationResult.getLastLocation());
-                /*DatabaseReference mDatabase = FirebaseDatabase.getInstance().getReference("users/123");
-                String userId = Integer.toString(iterative_key);
-                LocationData LocationData = new LocationData(current_location.getLatitude(),current_location.getLongitude() );
-                mDatabase.child(userId).setValue(LocationData);*/
             }
         };
     }
@@ -237,18 +251,24 @@ public class LocationBackgroundService extends Service {
     //Handle a new Location Update
     private void onNewLocation(Location location){
         if(previous_location==null){
+            //The case when the service has just started and we are on the start point
             previous_location=location;
+            Log.d(TAG,"Start Point");
+            ++iterative_key;
+            reverseGeocodeAndUpdateFirebase(location,iterative_key);
         }else {
-            if(previous_location.distanceTo(location)>10){
+            Log.i(TAG,"The difference between the two points given are"+Double.toString(previous_location.getLatitude())+" and "+Double.toString(location.getLatitude()));
+            if(previous_location.distanceTo(location)>15){
                 //Here we have a significant change in the distance of the position thus we need to update the firebase
                 ++iterative_key;
                 Log.d(TAG, "The Latitude is : " + Double.toString(location.getLatitude()) + "and the longitude is : " + Double.toString(location.getLongitude())+"and the iterative counter is "+Integer.toString(iterative_key));
-                //Send Data to Firebase
-
+                //Reverse Geocode and Send Data to Firebase
+                reverseGeocodeAndUpdateFirebase(location,iterative_key);
                 // Update notification content if running as a foreground service.
                 if (serviceIsRunningInForeground(this)) {
                     notification_manager.notify(NOTIFICATION_ID, getNotification(location.getLatitude(),location.getLongitude()));
                 }
+                previous_location=location;
             }
             else {
                 previous_location=location;
@@ -285,5 +305,60 @@ public class LocationBackgroundService extends Service {
             Log.e(TAG, "Lost location permission. Could not remove updates. " + unlikely);
         }
     }
+    //Reverse Geocode and Send Data to Firebase
+    public void reverseGeocodeAndUpdateFirebase(final Location location,final Integer index){
+        Runnable r=new Runnable() {
+            @Override
+            public void run() {
+                Log.i("ReverseGeocodeFirebase","Started runnable");
+                String address="null";
+                Geocoder geocoder= new Geocoder(getBaseContext(), Locale.ENGLISH);
+                Double latitude=location.getLatitude();
+                Double longitude=location.getLongitude();
+
+                try {
+
+                    //Place your latitude and longitude
+                    List<Address> addresses = geocoder.getFromLocation(latitude,longitude,1);
+
+                    if(addresses != null) {
+
+                        Address fetchedAddress = addresses.get(0);
+                        StringBuilder strAddress = new StringBuilder();
+
+                        for(int i=0; i<fetchedAddress.getMaxAddressLineIndex(); i++) {
+                            strAddress.append(fetchedAddress.getAddressLine(i)).append("\n");
+                        }
+                        address=strAddress.toString();
+                        Log.d("ReverseGeocodeFirebase","The current Address is"+ address);
+                    }
+
+                }
+                catch (IOException e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                    Toast.makeText(getApplicationContext(),"Could not get address..!", Toast.LENGTH_LONG).show();
+                }finally {
+                    Timestamp timestamp = new Timestamp(System.currentTimeMillis());
+                    String ts = timestamp.toString();
+                    Log.d("ReverseGeocodeFirebase","The timestamp is : "+ts);
+                    LocationData temp=new LocationData(latitude,longitude,address,ts);
+                    String index = Integer.toString(iterative_key);
+                    database_reference.child(index).setValue(temp).addOnFailureListener(new OnFailureListener() {
+                        @Override
+                        public void onFailure(@NonNull Exception e) {
+                            Log.i("ReverseGeocodeFirebase","Error updating Firebase "+e.toString());
+                        }
+                    });
+
+
+
+                }
+            }
+
+        };
+        reverse_geocode_handler.post(r);
+    }
+
 
 }
