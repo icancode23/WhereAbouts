@@ -9,7 +9,7 @@
         android:roundIcon="@mipmap/people_pointer"
         android:supportsRtl="true"
         android:theme="@style/AppTheme.NoActionBar">
-        <activity android:name=".Splash">
+        <activity android:name=".Activities.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
@@ -17,10 +17,10 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".HomeActivity"
+            android:name=".Activities.HomeActivity"
             android:label="@string/title_activity_home"
             android:theme="@style/AppTheme.NoActionBar"></activity>
-        <service android:name=".LocationBackgroundService"
+        <service android:name=".Services.LocationBackgroundPublishService"
                  android:enabled="true"
                  android:exported="true" />
     </application>

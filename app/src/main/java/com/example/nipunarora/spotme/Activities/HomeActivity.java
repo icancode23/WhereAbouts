@@ -1,12 +1,8 @@
-package com.example.nipunarora.spotme;
+package com.example.nipunarora.spotme.Activities;
 
-import android.*;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.Notification;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -14,18 +10,12 @@ import android.content.Intent;
 import android.content.IntentSender;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
-import android.icu.text.DateFormat;
 import android.location.Location;
-import android.media.RingtoneManager;
-import android.net.Uri;
 import android.os.Bundle;
-import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
-import android.support.v4.app.NotificationCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
@@ -33,38 +23,34 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
 
+import com.example.nipunarora.spotme.Interfaces.ServiceToActivityMail;
+import com.example.nipunarora.spotme.R;
+import com.example.nipunarora.spotme.Services.LocationBackgroundGetUpdatesService;
+import com.example.nipunarora.spotme.Services.LocationBackgroundPublishService;
 import com.google.android.gms.common.api.ApiException;
 import com.google.android.gms.common.api.ResolvableApiException;
 import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationCallback;
 import com.google.android.gms.location.LocationRequest;
-import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.LocationSettingsRequest;
 import com.google.android.gms.location.LocationSettingsResponse;
 import com.google.android.gms.location.LocationSettingsStatusCodes;
 import com.google.android.gms.location.SettingsClient;
-import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
-import com.google.android.gms.tasks.Task;
-import com.google.firebase.database.DatabaseReference;
-import com.google.firebase.database.FirebaseDatabase;
-
-import static android.R.attr.permission;
 
 /**
  * Created by nipunarora on 21/06/17.
  */
 
-public class HomeActivity extends AppCompatActivity {
+public class HomeActivity extends AppCompatActivity implements ServiceToActivityMail{
     String permission = Manifest.permission.ACCESS_FINE_LOCATION;
     Integer requestCode=77;
     private FusedLocationProviderClient mFusedLocationClient;
     private SettingsClient settings_client;
     LocationRequest location_request;
     LocationSettingsRequest location_setting_request;
-    Button start_updates,stop_updates;
+    Button start_updates,stop_updates,start_tracking;
     Boolean are_we_requesting_location_updates=false;
     Location current_location;
     private static final int REQUEST_CHECK_SETTINGS = 0x1;
@@ -72,8 +58,9 @@ public class HomeActivity extends AppCompatActivity {
     private static final long UPDATE_INTERVAL_IN_MILLISECONDS = 10000;
     private static final long FASTEST_UPDATE_INTERVAL_IN_MILLISECONDS =
             UPDATE_INTERVAL_IN_MILLISECONDS / 2;
-    LocationBackgroundService location_background_service;
-    private  ServiceConnection mServiceConnection;
+    LocationBackgroundPublishService location_background_get_location_service;//This service connects to the service which brings about the current location
+    LocationBackgroundGetUpdatesService location_background_get_updates_service;//This service connects to the service which gets the latest location of the person who is being tracked
+    private  ServiceConnection mServiceRequestLocationUpdates,mServiceGetUpdates;
     Boolean mBound;
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -81,6 +68,7 @@ public class HomeActivity extends AppCompatActivity {
         setContentView(R.layout.activity_home);
         start_updates=(Button)findViewById(R.id.startUpdates);
         stop_updates=(Button)findViewById(R.id.stopUpdates);
+        start_tracking=(Button)findViewById(R.id.startTracking);
         mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         settings_client=LocationServices.getSettingsClient(this);
 
@@ -103,23 +91,46 @@ public class HomeActivity extends AppCompatActivity {
         stop_updates.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                location_background_service.removeLocationUpdates();
+                location_background_get_location_service.removeLocationUpdates();
+            }
+        });
+        start_tracking.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+
             }
         });
         //Setup A service connection to bind to a running service
-        mServiceConnection = new ServiceConnection() {
+        mServiceRequestLocationUpdates = new ServiceConnection() {
 
             @Override
             public void onServiceConnected(ComponentName name, IBinder service) {
-                LocationBackgroundService.MyBinder binder = (LocationBackgroundService.MyBinder) service;
-                location_background_service= binder.getService();
+                LocationBackgroundPublishService.MyBinder binder = (LocationBackgroundPublishService.MyBinder) service;
+                location_background_get_location_service= binder.getService();
                 mBound = true;
                 Log.i(TAG,"Connected to location background service");
             }
 
             @Override
             public void onServiceDisconnected(ComponentName name) {
-                location_background_service = null;
+                location_background_get_location_service = null;
+                mBound = false;
+            }
+        };
+        mServiceGetUpdates=new ServiceConnection() {
+
+            @Override
+            public void onServiceConnected(ComponentName name, IBinder service) {
+                LocationBackgroundGetUpdatesService.MyBinder binder = (LocationBackgroundGetUpdatesService.MyBinder) service;
+                location_background_get_updates_service= binder.getService();
+                location_background_get_updates_service.registerActivityClient(HomeActivity.this);
+                mBound = true;
+                Log.i(TAG,"Connected to Get Updates service");
+            }
+
+            @Override
+            public void onServiceDisconnected(ComponentName name) {
+                location_background_get_location_service = null;
                 mBound = false;
             }
         };
@@ -129,7 +140,7 @@ public class HomeActivity extends AppCompatActivity {
     @Override
     protected void onStart() {
         super.onStart();
-        bindService(new Intent(this, LocationBackgroundService.class), mServiceConnection,
+        bindService(new Intent(this, LocationBackgroundPublishService.class), mServiceRequestLocationUpdates,
                 Context.BIND_AUTO_CREATE);
     }
 
@@ -152,7 +163,7 @@ public class HomeActivity extends AppCompatActivity {
     protected void onStop() {
         super.onStop();
         if(mBound){
-            unbindService(mServiceConnection);
+            unbindService(mServiceRequestLocationUpdates);
         }
     }
 
@@ -174,6 +185,17 @@ public class HomeActivity extends AppCompatActivity {
                 break;
         }
     }
+    
+    //Get Updates from GetUpdatesService
+
+    @Override
+    public void onReceiveServiceMail(String Action,Object... attachments) {
+        switch(Action){
+            case "LocationUpdate":
+                
+        }
+    }
+
     /********************************* Custom Functions ****************************/
 
     private void createLocationRequest() {
@@ -204,7 +226,7 @@ public class HomeActivity extends AppCompatActivity {
                         Log.i(TAG, "All location settings are satisfied.");
                         are_we_requesting_location_updates=true;
                         //noinspection MissingPermission
-                        location_background_service.startTracking();
+                        location_background_get_location_service.startTracking();
 
                     }
                 })
@@ -272,6 +294,7 @@ public class HomeActivity extends AppCompatActivity {
                 .create()
                 .show();
     }
+    
 
 
 

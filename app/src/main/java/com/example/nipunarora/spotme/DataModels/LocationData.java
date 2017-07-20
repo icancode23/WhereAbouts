@@ -1,4 +1,4 @@
-package com.example.nipunarora.spotme;
+package com.example.nipunarora.spotme.DataModels;
 
 /**
  * Created by nipunarora on 21/06/17.

@@ -1,4 +1,4 @@
-package com.example.nipunarora.spotme;
+package com.example.nipunarora.spotme.Services;
 
 import android.app.ActivityManager;
 import android.app.Notification;
@@ -12,23 +12,22 @@ import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
 import android.os.Binder;
-import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
 import android.preference.PreferenceManager;
-import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
-import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 import android.widget.Toast;
 
+import com.example.nipunarora.spotme.Activities.HomeActivity;
+import com.example.nipunarora.spotme.DataModels.LocationData;
+import com.example.nipunarora.spotme.R;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
-import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
@@ -45,7 +44,7 @@ import java.util.Locale;
  * Created by nipunarora on 13/07/17.
  */
 
-public class LocationBackgroundService extends Service {
+public class LocationBackgroundPublishService extends Service {
     /*************** Initializing various parameters *************/
     private final IBinder mBinder = new MyBinder();
     private final String TAG="LocationBackService";
@@ -62,7 +61,7 @@ public class LocationBackgroundService extends Service {
     private NotificationManager notification_manager;
     Handler service_handler,reverse_geocode_handler;
     String EXTRA_LOCATION="CurrentLocation";
-    public String ACTION_BROADCAST="LocationBackgroundService.LocationUpdateBroadcast";
+    public String ACTION_BROADCAST="LocationBackgroundPublishService.LocationUpdateBroadcast";
     Looper handler_thread_looper;
     HandlerThread reverse_geocode_thread;
     Runnable reverse_geocode_send_to_firebase;
@@ -88,7 +87,7 @@ public class LocationBackgroundService extends Service {
         reverse_geocode_handler=new Handler(reverse_geocode_thread.getLooper());
         notification_manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         mFusedLocationClient= LocationServices.getFusedLocationProviderClient(this);
-        database_reference=FirebaseDatabase.getInstance().getReference("users/456");
+        database_reference=FirebaseDatabase.getInstance().getReference("Sample/1");
 
     }
 
@@ -155,12 +154,12 @@ public class LocationBackgroundService extends Service {
     }
 
 
-    /***************** IBinder Class ********************/
-    public class MyBinder extends Binder{
-        LocationBackgroundService getService(){
-            return LocationBackgroundService.this;
+        /***************** IBinder Class ********************/
+        public class MyBinder extends Binder{
+            public LocationBackgroundPublishService getService(){
+                return LocationBackgroundPublishService.this;
+            }
         }
-    }
     /************************* Custom Functions *********************/
     //Checks Whether we are requesting for updates
     public boolean isRequestingLocationUpdates(){
@@ -174,7 +173,7 @@ public class LocationBackgroundService extends Service {
 
     //To build the notification for foreground service
     private Notification getNotification(Double...coordinates) {
-        Intent intent = new Intent(this, LocationBackgroundService.class);
+        Intent intent = new Intent(this, LocationBackgroundPublishService.class);
         // Extra to help us figure out if we arrived in onStartCommand via the notification or not.
         intent.putExtra(is_started_from_notification, true);
 
@@ -241,7 +240,7 @@ public class LocationBackgroundService extends Service {
     }
     public void startTracking(){
         try {
-            startService(new Intent(getApplicationContext(), LocationBackgroundService.class));
+            startService(new Intent(getApplicationContext(), LocationBackgroundPublishService.class));
         } catch (Exception e) {
             Log.i(TAG, "Start Service Exception " + e.toString());
         }
@@ -344,7 +343,7 @@ public class LocationBackgroundService extends Service {
                     Log.d("ReverseGeocodeFirebase","The timestamp is : "+ts);
                     LocationData temp=new LocationData(latitude,longitude,address,ts);
                     String index = Integer.toString(iterative_key);
-                    database_reference.child(index).setValue(temp).addOnFailureListener(new OnFailureListener() {
+                    database_reference.setValue(temp).addOnFailureListener(new OnFailureListener() {
                         @Override
                         public void onFailure(@NonNull Exception e) {
                             Log.i("ReverseGeocodeFirebase","Error updating Firebase "+e.toString());
