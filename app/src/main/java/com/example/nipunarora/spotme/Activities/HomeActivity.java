@@ -2,6 +2,7 @@ package com.example.nipunarora.spotme.Activities;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.Context;
@@ -13,6 +14,7 @@ import android.content.pm.PackageManager;
 import android.location.Location;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.preference.PreferenceManager;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
@@ -21,6 +23,7 @@ import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.example.nipunarora.spotme.Interfaces.ServiceToActivityMail;
@@ -53,6 +56,7 @@ public class HomeActivity extends AppCompatActivity implements ServiceToActivity
     Button start_updates,stop_updates,start_tracking;
     Boolean are_we_requesting_location_updates=false;
     Location current_location;
+    TextView current_address;
     private static final int REQUEST_CHECK_SETTINGS = 0x1;
     final String TAG="HomeActivityTag";
     private static final long UPDATE_INTERVAL_IN_MILLISECONDS = 10000;
@@ -61,7 +65,7 @@ public class HomeActivity extends AppCompatActivity implements ServiceToActivity
     LocationBackgroundPublishService location_background_get_location_service;//This service connects to the service which brings about the current location
     LocationBackgroundGetUpdatesService location_background_get_updates_service;//This service connects to the service which gets the latest location of the person who is being tracked
     private  ServiceConnection mServiceRequestLocationUpdates,mServiceGetUpdates;
-    Boolean mBound;
+    Boolean mBoundLocation=false,mBoundTrack=false;
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -69,6 +73,7 @@ public class HomeActivity extends AppCompatActivity implements ServiceToActivity
         start_updates=(Button)findViewById(R.id.startUpdates);
         stop_updates=(Button)findViewById(R.id.stopUpdates);
         start_tracking=(Button)findViewById(R.id.startTracking);
+        current_address=(TextView)findViewById(R.id.currentLocation);
         mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         settings_client=LocationServices.getSettingsClient(this);
 
@@ -80,24 +85,26 @@ public class HomeActivity extends AppCompatActivity implements ServiceToActivity
         start_updates.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (checkPermissions()) {
-                    startLocationUpdates();
-                } else if (!checkPermissions()) {
-                    askForPermission(requestCode,permission);
-                }
-
+                    bindService(new Intent(getApplicationContext(), LocationBackgroundPublishService.class), mServiceRequestLocationUpdates,
+                            Context.BIND_AUTO_CREATE);
             }
         });
         stop_updates.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                location_background_get_location_service.removeLocationUpdates();
+                try {
+                    location_background_get_location_service.removeLocationUpdates();
+                }catch (Exception e){
+                    Log.d(TAG,"Stopping Service that has not be started");
+                }
+                mBoundLocation=false;
             }
         });
         start_tracking.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-
+                        bindService(new Intent(getApplicationContext(), LocationBackgroundGetUpdatesService.class), mServiceGetUpdates,
+                                Context.BIND_AUTO_CREATE);
             }
         });
         //Setup A service connection to bind to a running service
@@ -107,14 +114,20 @@ public class HomeActivity extends AppCompatActivity implements ServiceToActivity
             public void onServiceConnected(ComponentName name, IBinder service) {
                 LocationBackgroundPublishService.MyBinder binder = (LocationBackgroundPublishService.MyBinder) service;
                 location_background_get_location_service= binder.getService();
-                mBound = true;
+                if (checkPermissions()) {
+                    startLocationUpdates();
+                } else if (!checkPermissions()) {
+                    askForPermission(requestCode, permission);
+                }
+                mBoundLocation = true;
                 Log.i(TAG,"Connected to location background service");
             }
 
             @Override
             public void onServiceDisconnected(ComponentName name) {
+                Log.d(TAG,"Disconnected From Service");
                 location_background_get_location_service = null;
-                mBound = false;
+
             }
         };
         mServiceGetUpdates=new ServiceConnection() {
@@ -123,15 +136,17 @@ public class HomeActivity extends AppCompatActivity implements ServiceToActivity
             public void onServiceConnected(ComponentName name, IBinder service) {
                 LocationBackgroundGetUpdatesService.MyBinder binder = (LocationBackgroundGetUpdatesService.MyBinder) service;
                 location_background_get_updates_service= binder.getService();
+                location_background_get_updates_service.startTracking("Nipun Arora");
                 location_background_get_updates_service.registerActivityClient(HomeActivity.this);
-                mBound = true;
+                mBoundTrack = true;
                 Log.i(TAG,"Connected to Get Updates service");
             }
 
             @Override
             public void onServiceDisconnected(ComponentName name) {
-                location_background_get_location_service = null;
-                mBound = false;
+                Log.d(TAG,"Disconnected From Service");
+                location_background_get_updates_service = null;
+                mBoundTrack = false;
             }
         };
 
@@ -140,8 +155,17 @@ public class HomeActivity extends AppCompatActivity implements ServiceToActivity
     @Override
     protected void onStart() {
         super.onStart();
-        bindService(new Intent(this, LocationBackgroundPublishService.class), mServiceRequestLocationUpdates,
-                Context.BIND_AUTO_CREATE);
+        Log.d(TAG,"onStart");
+        if(PreferenceManager.getDefaultSharedPreferences(this).getBoolean("IsRequestingLocationUpdates",false)){
+            Log.d(TAG,"Binding Service onStart");
+            bindService(new Intent(this, LocationBackgroundPublishService.class), mServiceRequestLocationUpdates,
+                Context.BIND_AUTO_CREATE);}
+        else {
+            if (PreferenceManager.getDefaultSharedPreferences(this).getBoolean("IsTracking",false)) {
+                bindService(new Intent(this, LocationBackgroundGetUpdatesService.class), mServiceGetUpdates,
+                        Context.BIND_AUTO_CREATE);
+            }
+        }
     }
 
     @Override
@@ -162,8 +186,13 @@ public class HomeActivity extends AppCompatActivity implements ServiceToActivity
     @Override
     protected void onStop() {
         super.onStop();
-        if(mBound){
+        if(mBoundLocation){
             unbindService(mServiceRequestLocationUpdates);
+            mBoundLocation = false;
+        }
+        else if(mBoundTrack){
+            unbindService(mServiceGetUpdates);
+            mBoundTrack = false;
         }
     }
 
@@ -192,6 +221,8 @@ public class HomeActivity extends AppCompatActivity implements ServiceToActivity
     public void onReceiveServiceMail(String Action,Object... attachments) {
         switch(Action){
             case "LocationUpdate":
+                current_address.setText((String)attachments[0]);
+                break;
                 
         }
     }
@@ -293,6 +324,34 @@ public class HomeActivity extends AppCompatActivity implements ServiceToActivity
                 .setNegativeButton("Cancel", null)
                 .create()
                 .show();
+    }
+    //Checking whether the get update service is currently running as a foreground service this would help update the notification
+    public boolean getUpdateServiceIsRunningInForeground(Context context) {
+        ActivityManager manager = (ActivityManager) context.getSystemService(
+                Context.ACTIVITY_SERVICE);
+        for (ActivityManager.RunningServiceInfo service : manager.getRunningServices(
+                Integer.MAX_VALUE)) {
+            if (LocationBackgroundGetUpdatesService.class.getClass().getName().equals(service.service.getClassName())) {
+                if (service.foreground ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    //Checking whether the get update service is currently running as a foreground service this would help update the notification
+    public boolean locationUpdateServiceIsRunningInForeground(Context context) {
+        ActivityManager manager = (ActivityManager) context.getSystemService(
+                Context.ACTIVITY_SERVICE);
+        for (ActivityManager.RunningServiceInfo service : manager.getRunningServices(
+                Integer.MAX_VALUE)) {
+            if (LocationBackgroundPublishService.class.getClass().getName().equals(service.service.getClassName())) {
+                if (service.foreground ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
     
 

@@ -22,7 +22,9 @@
             android:theme="@style/AppTheme.NoActionBar"></activity>
         <service android:name=".Services.LocationBackgroundPublishService"
                  android:enabled="true"
-                 android:exported="true" />
+                 android:exported="true"/>
+        <service android:name=".Services.LocationBackgroundGetUpdatesService"
+                 android:enabled="true"/>
     </application>
 
 </manifest>

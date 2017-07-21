@@ -11,6 +11,7 @@ import android.content.res.Configuration;
 import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
+import android.media.RingtoneManager;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -87,6 +88,7 @@ public class LocationBackgroundPublishService extends Service {
         reverse_geocode_handler=new Handler(reverse_geocode_thread.getLooper());
         notification_manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         mFusedLocationClient= LocationServices.getFusedLocationProviderClient(this);
+        //Sample refernce and data being assigned to it in firebase function below change when deploying
         database_reference=FirebaseDatabase.getInstance().getReference("Sample/1");
 
     }
@@ -134,7 +136,7 @@ public class LocationBackgroundPublishService extends Service {
         //We check that we arent fooled by a configuration change on the activity and we need a an update
         if(!mChangingConfiguration && isRequestingLocationUpdates()){
             Log.i(TAG, "Starting foreground service");
-                startForeground(NOTIFICATION_ID, getNotification());
+                startForeground(NOTIFICATION_ID, getNotification("null"));
         }
         return true;
     }
@@ -172,7 +174,7 @@ public class LocationBackgroundPublishService extends Service {
     }
 
     //To build the notification for foreground service
-    private Notification getNotification(Double...coordinates) {
+    private Notification getNotification(String address) {
         Intent intent = new Intent(this, LocationBackgroundPublishService.class);
         // Extra to help us figure out if we arrived in onStartCommand via the notification or not.
         intent.putExtra(is_started_from_notification, true);
@@ -185,8 +187,8 @@ public class LocationBackgroundPublishService extends Service {
         PendingIntent activityPendingIntent = PendingIntent.getActivity(this, 0,
                 new Intent(this, HomeActivity.class), 0);
         String notification_content;
-        if(coordinates.length!=0){
-            notification_content="Your latitude is "+Double.toString(coordinates[0])+"And Longitude is "+Double.toString(coordinates[1]);
+        if(!address.equals("null")){
+            notification_content="You are at "+address;
         }else {
             Log.i(TAG,"Notification content does not have location right now");
             notification_content="Your location is being shared";
@@ -197,9 +199,13 @@ public class LocationBackgroundPublishService extends Service {
                         activityPendingIntent)
                 .addAction(R.drawable.ic_cancel_black_24dp, "Stop Location Updates",
                         servicePendingIntent)
-                .setContentText(notification_content) //TODO need to set some dynamic text giving more info of what is going around in the service
+                .setStyle(new NotificationCompat.BigTextStyle()
+                        .bigText(notification_content))
+                //.setContentText(notification_content) //TODO need to set some dynamic text giving more info of what is going around in the service
                 .setContentTitle("WhereAbouts")
+                .setContentText("Expand to View")
                 .setOngoing(true)
+                .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
                 .setPriority(Notification.PRIORITY_MAX)
                 .setSmallIcon(R.drawable.position)
                 .setTicker("Your location is being shared")
@@ -256,17 +262,13 @@ public class LocationBackgroundPublishService extends Service {
             ++iterative_key;
             reverseGeocodeAndUpdateFirebase(location,iterative_key);
         }else {
-            Log.i(TAG,"The difference between the two points given are"+Double.toString(previous_location.getLatitude())+" and "+Double.toString(location.getLatitude()));
+            Log.i(TAG,"The difference between the two points given are"+previous_location.distanceTo(location));
             if(previous_location.distanceTo(location)>15){
                 //Here we have a significant change in the distance of the position thus we need to update the firebase
                 ++iterative_key;
                 Log.d(TAG, "The Latitude is : " + Double.toString(location.getLatitude()) + "and the longitude is : " + Double.toString(location.getLongitude())+"and the iterative counter is "+Integer.toString(iterative_key));
                 //Reverse Geocode and Send Data to Firebase
                 reverseGeocodeAndUpdateFirebase(location,iterative_key);
-                // Update notification content if running as a foreground service.
-                if (serviceIsRunningInForeground(this)) {
-                    notification_manager.notify(NOTIFICATION_ID, getNotification(location.getLatitude(),location.getLongitude()));
-                }
                 previous_location=location;
             }
             else {
@@ -349,6 +351,10 @@ public class LocationBackgroundPublishService extends Service {
                             Log.i("ReverseGeocodeFirebase","Error updating Firebase "+e.toString());
                         }
                     });
+                    // Update notification content if running as a foreground service.
+                    if (serviceIsRunningInForeground(LocationBackgroundPublishService.this)) {
+                        notification_manager.notify(NOTIFICATION_ID, getNotification(temp.address));
+                    }
 
 
 

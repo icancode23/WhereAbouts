@@ -1,14 +1,17 @@
 package com.example.nipunarora.spotme.Services;
 
+import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
+import android.media.RingtoneManager;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -26,10 +29,14 @@ import com.example.nipunarora.spotme.DataModels.LocationData;
 import com.example.nipunarora.spotme.Interfaces.ServiceToActivityMail;
 import com.example.nipunarora.spotme.R;
 import com.google.android.gms.tasks.OnFailureListener;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ValueEventListener;
 
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Locale;
@@ -46,19 +53,14 @@ public class LocationBackgroundGetUpdatesService extends Service {
     Boolean mChangingConfiguration;
     private static final int NOTIFICATION_ID = 1234;
     String person_being_tracked;
-    ServiceToActivityMail mailer;
-    HandlerThread reverse_geocode_thread;
-    Runnable reverse_geocode_send_to_firebase;
-    Handler reverse_geocode_handler;
+    WeakReference<ServiceToActivityMail> mailer;
     DatabaseReference firebase_ref;
+    ValueEventListener db_listener;
     /************************** Overrides ********************/
     @Override
     public void onCreate() {
         super.onCreate();
         notification_manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        reverse_geocode_thread=new HandlerThread("ReverseGeocode");
-        reverse_geocode_thread.start();
-        reverse_geocode_handler=new Handler(reverse_geocode_thread.getLooper());
     }
 
     @Override
@@ -69,7 +71,7 @@ public class LocationBackgroundGetUpdatesService extends Service {
 
         // We got here because the user decided to remove location updates from the notification.
         if (startedFromNotification) {
-
+            stopTracking();
             stopSelf();
         }else{
 
@@ -140,13 +142,14 @@ public class LocationBackgroundGetUpdatesService extends Service {
         startService(new Intent(getApplicationContext(),LocationBackgroundGetUpdatesService.class));
         setTrackingStatus(true);
         person_being_tracked=person_name;
+        registerFirebaseClient();
         Log.i(TAG,"startTracking");
 
     }
 
     //To build the notification for foreground service
     private Notification getNotification(String location) {
-        Intent intent = new Intent(this, LocationBackgroundPublishService.class);
+        Intent intent = new Intent(this, LocationBackgroundGetUpdatesService.class);
         // Extra to help us figure out if we arrived in onStartCommand via the notification or not.
         intent.putExtra(is_started_from_notification, true);
 
@@ -162,7 +165,7 @@ public class LocationBackgroundGetUpdatesService extends Service {
             notification_content=person_being_tracked+" is at "+location;
         }else {
             Log.i(TAG,"Notification content does not have location right now");
-            notification_content="Waiting for" + person_being_tracked;
+            notification_content="Waiting for " + person_being_tracked;
         }
 
         return new NotificationCompat.Builder(this)
@@ -170,12 +173,16 @@ public class LocationBackgroundGetUpdatesService extends Service {
                         activityPendingIntent)
                 .addAction(R.drawable.ic_cancel_black_24dp, "Stop Tracking",
                         servicePendingIntent)
-                .setContentText(notification_content) //TODO need to set some dynamic text giving more info of what is going around in the service
+                .setStyle(new NotificationCompat.BigTextStyle()
+                        .bigText(notification_content))
+                //.setContentText(notification_content) //TODO need to set some dynamic text giving more info of what is going around in the service
                 .setContentTitle("WhereAbouts")
+                .setContentText("Expand To View")
+                .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
                 .setOngoing(true)
                 .setPriority(Notification.PRIORITY_MAX)
                 .setSmallIcon(R.drawable.position)
-                .setTicker("Your location is being shared")
+                .setTicker("Waiting for "+person_being_tracked)
                 .setWhen(System.currentTimeMillis()).build();
     }
     //Method to stop tracking the person that is stop listening for the Database updates
@@ -183,6 +190,8 @@ public class LocationBackgroundGetUpdatesService extends Service {
         setTrackingStatus(false);
         try{
             //Remove firebase Listener
+            firebase_ref.removeEventListener(db_listener);
+            setTrackingStatus(false);
             stopSelf();
         }catch (Exception e){
             Log.i(TAG,"stopTracking:"+e.toString());
@@ -194,55 +203,49 @@ public class LocationBackgroundGetUpdatesService extends Service {
         //Connect with firebase and register client
         //Currently setting up some sample details
         firebase_ref= FirebaseDatabase.getInstance().getReference("Sample").child("1");
+        db_listener= new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot dataSnapshot) {
+                try {
+                    LocationData temp = (LocationData) dataSnapshot.getValue(LocationData.class);
+                    Log.d(TAG,"onDataChange:"+temp.address);
+                    if (getUpdateServiceIsRunningInForeground(LocationBackgroundGetUpdatesService.this)) {
+                        notification_manager.notify(NOTIFICATION_ID, getNotification(temp.address));
+                    }
+                    ServiceToActivityMail m=mailer.get();
+                    if(m!=null) {
+                        m.onReceiveServiceMail("LocationUpdate", temp.address);
+                    }
+                }catch (Exception e){
+                    Log.i(TAG,"Firebase:onDataChange: "+e.toString());
+                }
+            }
+
+            @Override
+            public void onCancelled(DatabaseError databaseError) {
+            }
+        };
+        firebase_ref.addValueEventListener(db_listener);
 
     }
 
     //Register Activity Client
-    public void registerActivityClient(ServiceToActivityMail mailer){
-        mailer=mailer;
+    public void registerActivityClient(ServiceToActivityMail mail_client){
+        mailer=new WeakReference<ServiceToActivityMail>(mail_client);
     }
-    //Reverse Geocode and Send Data to Firebase
-    public void reverseGeocodeAndUpdateFirebase(final Location location, final Integer index){
-        Runnable r=new Runnable() {
-            @Override
-            public void run() {
-                Log.i("ReverseGeocodeFirebase","Started runnable");
-                String address="null";
-                Geocoder geocoder= new Geocoder(getBaseContext(), Locale.ENGLISH);
-                Double latitude=location.getLatitude();
-                Double longitude=location.getLongitude();
-
-                try {
-
-                    //Place your latitude and longitude
-                    List<Address> addresses = geocoder.getFromLocation(latitude,longitude,1);
-
-                    if(addresses != null) {
-
-                        Address fetchedAddress = addresses.get(0);
-                        StringBuilder strAddress = new StringBuilder();
-
-                        for(int i=0; i<fetchedAddress.getMaxAddressLineIndex(); i++) {
-                            strAddress.append(fetchedAddress.getAddressLine(i)).append("\n");
-                        }
-                        address=strAddress.toString();
-                        Log.d("ReverseGeocodeFirebase","The current Address is"+ address);
-                    }
-
-                }
-                catch (IOException e) {
-                    // TODO Auto-generated catch block
-                    e.printStackTrace();
-                    Toast.makeText(getApplicationContext(),"Could not get address..!", Toast.LENGTH_LONG).show();
-                }finally {
-                    Timestamp timestamp = new Timestamp(System.currentTimeMillis());
-                    String ts = timestamp.toString();
-                    Log.d("ReverseGeocodeFirebase","The timestamp is : "+ts);
+    //Checking whether the get update service is currently running as a foreground service this would help update the notification
+    public boolean getUpdateServiceIsRunningInForeground(Context context) {
+        ActivityManager manager = (ActivityManager) context.getSystemService(
+                Context.ACTIVITY_SERVICE);
+        for (ActivityManager.RunningServiceInfo service : manager.getRunningServices(
+                Integer.MAX_VALUE)) {
+            if (getClass().getName().equals(service.service.getClassName())) {
+                if (service.foreground ) {
+                    return true;
                 }
             }
-
-        };
-        reverse_geocode_handler.post(r);
+        }
+        return false;
     }
 
 }

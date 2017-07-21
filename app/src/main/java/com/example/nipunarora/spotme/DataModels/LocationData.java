@@ -5,8 +5,8 @@ package com.example.nipunarora.spotme.DataModels;
  */
 
 public class LocationData {
-    Double lat,lng;
-    String address,timestamp;
+    public Double lat,lng;
+    public String address,timestamp;
 
     public LocationData() {
     }

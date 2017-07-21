@@ -13,6 +13,7 @@
         android:hint="Location will appear here"
         android:textColor="@android:color/black"
         android:fontFamily="serif-monospace"
+        android:id="@+id/currentLocation"
         android:layout_marginLeft="16dp"
         android:layout_marginRight="16dp"
         android:layout_marginTop="17dp"
